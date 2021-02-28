@@ -1,0 +1,269 @@
+---
+title: "Coffee ratings - a story using data"
+author: "Miguel Pereira"
+date: "06/02/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = F, message=F, warning=F, error=F,
+                      cache = TRUE)
+
+'%notin%' <- Negate('%in%')
+
+#---Libraries
+library(readr)
+library(tidyverse)
+library(ggplot2)
+library(hrbrthemes)
+library(janitor)
+library(kableExtra)
+library(scales)
+library(ggrepel)
+library(maps)
+
+
+world <- map_data("world")
+world <- world %>%
+  mutate(region = replace(region, subregion=='Hawaii', 'United States (Hawaii)'))
+
+world.cities <- world.cities %>% 
+  mutate(country.etc = replace(country.etc, name=='Honolulu', 'United States (Hawaii)'))
+main.world.cities<-world.cities %>% group_by(country.etc) %>%
+  filter(pop == max(pop))
+
+
+#---Load dataset
+coffee <- readr::read_csv('https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2020/2020-07-07/coffee_ratings.csv')
+
+coffee$country_of_origin<-(recode(coffee$country_of_origin, 'Cote d?Ivoire'='Ivory Coast',
+         'Tanzania, United Republic Of'='Tanzania',
+         'United States' = 'USA',
+         'United States (Puerto Rico)'='Puerto Rico'))
+
+coffee <- coffee %>%
+  drop_na(country_of_origin)
+
+```
+
+\  
+\  
+
+## Coffee Ratings analysis from a non-connoisseur
+
+
+I am not a coffee expert but I love coffee. Recently, after seeing all coffee shops closed during the first lockdown, I have been experimenting with coffee at home. A short summary of the experiments I have done so far is below. I have experimented with:
+
+* Different blends of ground coffee - Usually using really basic coffee consisting of the House Blend from different supermarket chains.
+* Different brewing methods - Aeropress, French press, Caffetiere, 
+* Different espresso pods - I purchased a coffee machine that takes normal ground coffee, Dolce gusto pods and Nespresso pods. Loving the later, I have done several experiments 
+* Blinded coffee tasting - To see how good I was at identifying different intensities (all with Nespresso compatible pods from Lidl) and to see if I could distinguish different decaf pods from 3 different brands.
+
+\  
+
+And now, I have come across this nice dataset with `r nrow(coffee)` ratings of coffee from `r length(unique(coffee$country_of_origin))` different countries/regions. This was the excuse I was looking for to put together my coffee addiction with my passion for data science and statistics. Luckily, it also happens to be my job - the later as the first is hardly a job even though brewing coffee takes up a good chunk of the time I should be doing data analyses.
+
+\  
+
+The dataset contains data from the 
+
+\  
+
+This is a simple descriptive analysis that I hope entertainments the reader and allows us to learn some facts about coffee.
+
+## Distribution of coffee blends by country
+
+The first idea I wanted to explore was where the coffees originated from and which countries were more represented with different blends and how many.
+
+The plot shows the distribution by country with the bubbles being proportional to the number of different blends tested and the table shows the top 10 countries by number of blends per country and the number of different producers.
+
+```{r countries,echo=F, message=F, warning=F, error=F}
+coffee.table<-coffee %>% count(`Country of origin` = factor(country_of_origin)) %>% 
+  mutate(Percentage = round(prop.table(n)*100,2)) %>%
+  arrange(-Percentage) %>% 
+  rename(N = n) %>% 
+  merge(.,  main.world.cities, by.x='Country of origin',by.y='country.etc')
+
+
+ggplot() +
+  geom_polygon(data = world, aes(x=long, y = lat, group = group), fill="grey", alpha=0.3)+
+  geom_point( data=coffee.table, aes(x=long, y=lat, size=N, color=N))+
+  xlab('')+ylab('')+ geom_text_repel( data=coffee.table, aes(x=long, y=lat, label=`Country of origin`), size=3)+theme(legend.position = 'bottom')
+
+```
+
+\  
+\  
+
+```{r}
+
+coffee %>% group_by(country_of_origin) %>%
+  summarise(Blends = n(), `Producers` = n_distinct(producer)) %>%
+  mutate(`Producer/Blend ratio` = percent(`Producers`/Blends, accuracy = 0.1)) %>%
+  mutate(Percentage = round(prop.table(Blends)*100,2)) %>%
+  relocate(Percentage, .after = Blends) %>%
+  arrange(-Percentage) %>%
+  rename(`Country of Origin` = country_of_origin) %>%
+  mutate(Percentage = percent(prop.table(Blends), accuracy = 0.1)) %>%
+  slice(1:10) %>%
+  kable(align = 'lcccc') %>%
+  kable_styling(position = "center") %>%
+  kable_classic(full_width = F, html_font = "Arial")
+
+top3.sum <- (coffee.table %>%
+  arrange(-Percentage))[1:3,] %>% summarise(sum(Percentage))
+
+```
+
+
+\  
+\  
+
+The winning region is clearly central America with almost half of the blends (`r paste(top3.sum,'%',sep='')`) coming from either Mexico, Colombia or Guatemala - the top 3 countries.
+
+The next step was to compare the two different species of coffee: Arabica and Robusta.
+\  
+
+## Arabica vs. Robusta
+
+```{r coffee_species, echo=F, message=F, warning=F}
+coffee %>% 
+  group_by(species) %>% 
+  summarise(N = n(),`Average rating`=round(mean(total_cup_points),2)) %>% 
+  mutate(Percentage = round(prop.table(N)*100,2)) %>%
+  arrange(-Percentage) %>%
+  adorn_totals("row")  %>%  
+  rename(Species = species) %>%
+  kable(align = 'lccc') %>%
+  kable_styling(position = "center") %>%
+  kable_classic(full_width = F, html_font = "Arial")
+
+
+```
+
+
+
+### Rating distribution per species
+
+The plots below show the distribution of the coffee ratings for each species.
+
+The first plot show the distribution of the different coffee ratings according to the species.
+
+The second plot assumes normally distributed ratings for both species.
+
+It is clear that the rating distribution is not very different for each species.
+
+
+```{r ratings_distribution, echo=F, message=F, warning=F}
+ggplot(data = coffee, aes(x=species,y=total_cup_points,col=species))+
+  geom_boxplot() + 
+  xlab('Species') + ylab('Coffee rating') + theme(legend.position = 'none') +
+  ylim(c(50,100)) +
+  geom_jitter()
+
+
+
+
+coffee.dist <- coffee %>% group_by(species) %>% 
+    summarise(mean=mean(total_cup_points),sd=sd(total_cup_points))
+
+ggplot(data.frame(x = c(0, 100)), aes(x)) + 
+  mapply(function(mean, sd, col) {
+    stat_function(fun = dnorm, args = list(mean = mean, sd = sd), aes(colour = col))
+  }, 
+  # enter means, standard deviations and colors here
+  mean = coffee.dist$mean, 
+  sd = coffee.dist$sd, 
+  col = c('green','red')) +
+  ylab('') + xlab('Coffee rating') + xlim(c(50,100))+
+  scale_colour_manual("Species", values=c('green', 'red'), labels=coffee.dist$species)+
+  theme(legend.position="bottom")
+
+```
+
+\  
+\  
+
+## Top 10 best coffee blends
+
+```{r}
+
+coffee %>%
+  mutate(Ranking = 1:nrow(.),
+         region = stringr::str_to_title(region),
+         producer = stringr::str_to_title(producer)) %>%
+  select(Ranking, total_cup_points, #species, 
+         country_of_origin, #region, 
+         producer, altitude) %>%
+  slice(1:10)   %>%  
+  replace(is.na(.), '-') %>%
+  rename(`Coffee rating` = total_cup_points,
+         #Species = species,
+         `Country of Origin` = country_of_origin,
+         #Region = region,
+         Producer = producer,
+         `Altitude (m)` = altitude) %>%
+  kable(align = 'lcccccc', caption = 'Top 10 best coffee blends by overall rating.') %>%
+  kable_styling(position = "center") %>%
+  kable_classic(full_width = F, html_font = "Arial")
+
+
+
+```
+
+\  
+
+Ethiopia seems to be a winner with 7 coffees in the top 10. All top coffees are Arabica species and are produced at altitude. Coffees ranked 3rd, 6th and 7th, from Guatemala, Brazil and Peru, respectively, are missing some information like, unfortunately. Howeverm, the dataset is quite complete overall is a small percentage of missing data.
+
+Another interesting question is how these coffees look like in terms of the 10 parameters that were assessed to obtain the final rating. The parameters were the following:
+
+* Aroma
+* Flavor
+* Aftertaste
+* Acidity
+* Body
+* Balance
+* Uniformity
+* Clean cup
+* Sweetness
+* Cupper points
+* Moisture
+* Category 1 defects
+* Quakers
+* Color
+* Category 2 defects
+
+
+```{r}
+
+coffee %>%
+  mutate(Ranking = as.integer(1:nrow(.))) %>% 
+  select(Ranking, aroma, flavor, aftertaste, acidity, body, 
+         balance, uniformity, clean_cup, sweetness, cupper_points, moisture) %>%
+  mutate_at(vars(!Ranking), scale) %>% 
+  slice(1:10) %>%
+  pivot_longer(!Ranking, names_to='Parameter', values_to = 'Score') %>%
+  ggplot(aes(x = Parameter, y = Ranking, fill = Score))+ 
+  geom_tile() +
+  scale_fill_gradient(low="white", high="blue")
+
+```
+
+
+## Countries with the top average rating
+
+```{r}
+coffee %>%
+  group_by(country_of_origin) %>%
+  summarise(points = mean(total_cup_points)) %>%
+  arrange(-points)
+
+```
+
+
+## What is the mean altitude
+
+```{r}
+mean(coffee$altitude_mean_meters, na.rm = T)
+
+```
